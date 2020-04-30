@@ -1,6 +1,4 @@
 import React, { useState, useEffect } from "react";
-import { standardDeviation } from "./utils.js";
-import { generateFakeData } from "./faker.js";
 import { graphql } from "graphql";
 import Navbar from "./Navbar.js";
 import MetricSelector from "./MetricSelector.js";
@@ -28,24 +26,50 @@ import {
   reduce
 } from "ramda";
 
+import ApolloClient from 'apollo-client';
+
+import { InMemoryCache } from 'apollo-cache-inmemory';
+
+import { HttpLink } from 'apollo-link-http';
+
+import { ApolloProvider } from '@apollo/react-hooks';
+
+import { useQuery } from '@apollo/react-hooks';
+
+
 import theme from "./theme.js";
 
-const query = /* GraphQL */ `
+
+const createApolloClient = (authToken) => {
+
+  return new ApolloClient({
+
+    link: new HttpLink({
+
+      uri: 'http://128.232.124.187:8080/v1/graphql',
+
+      headers: {
+
+        Authorization: `Bearer ${authToken}`
+
+      }
+
+    }),
+
+    cache: new InMemoryCache(),
+
+  });
+
+};
+
+
+const query= /* GraphQL */ `
   query {
-    repositories {
-      name
-      commits {
-        hash
         benchmarkRuns {
-          data {
             name
-            metrics {
               time
               ops_per_sec
             }
-          }
-        }
-      }
     }
   }
 `;
@@ -67,13 +91,9 @@ function benchmarkToChart(results) {
           relCommit: index - len + 1,
           time: time.mean,
           timeLimit: [
-            time.mean - time.standardDeviation,
-            time.mean + time.standardDeviation
           ],
           opsPerSec: opsPerSec.mean,
           opsPerSecLimit: [
-            opsPerSec.mean - opsPerSec.standardDeviation,
-            opsPerSec.mean + opsPerSec.standardDeviation
           ]
         }
       ];
@@ -86,36 +106,20 @@ function benchmarkToChart(results) {
   return result;
 }
 
-// Take an array of metrics and aggregate them, computing mean and standard deviation
-function metricCompute(metrics) {
-  const ks = reduce(union, [], map(k => keys(k), metrics));
-
-  return map(key => {
-    const values = map(prop(key), metrics);
-
-    const valuesMean = mean(values);
-    const valuesStandardDeviation = standardDeviation(values);
-
-    return {
-      name: key,
-      mean: valuesMean,
-      standardDeviation: valuesStandardDeviation
-    };
-  }, ks);
-}
-
 const mapNil = curry((f, xs) => {
   if (isNil(xs)) return xs;
   return map(f, xs);
 });
 
+const GetBenchmarkDataQuery = () => {
+  const {_, _, data} = useQuery(query);
+  return data.benchmarkRuns;
+}
+
 function App() {
   const [data, setData] = useState({ data: { repositories: [] } });
 
-  const [searchTerm, setSearchTerm] = React.useState("");
-  const handleSearchTermChange = event => {
-    setSearchTerm(event.target.value);
-  };
+  const client = createApolloClient(idToken);
 
   useEffect(() => {
     async function fetchData() {
@@ -134,18 +138,18 @@ function App() {
   const commits = prop("commits", repo);
   const benchmarkNames = commits
     ? reduce(
-        union,
-        [],
-        mapNil(
-          pipe(
-            prop("benchmarkRuns"),
-            map(prop("data")),
-            map(map(prop("name"))),
-            reduce(union, [])
-          ),
-          commits
-        )
+      union,
+      [],
+      mapNil(
+        pipe(
+          prop("benchmarkRuns"),
+          map(prop("data")),
+          map(map(prop("name"))),
+          reduce(union, [])
+        ),
+        commits
       )
+    )
     : commits;
 
   var benches = [];
@@ -154,16 +158,11 @@ function App() {
     benches = map(name => {
       const results = commits.map(commit => {
         const all = commit.benchmarkRuns.map(({ data }) => data);
-        const flattened = flatten(all);
-        const some = filter(r => equals(name, r.name), flattened);
-        const fewer = map(({ metrics }) => metrics, some);
-        const last = metricCompute(fewer);
 
         const bar = { hash: commit.hash, stats: last };
 
-        const foo = generateFakeData(bar);
 
-        return foo;
+        return data.benchmarkRuns;
       })[0];
 
       const chart = benchmarkToChart(results);

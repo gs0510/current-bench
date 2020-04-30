@@ -4,6 +4,8 @@ import { Switch, FormGroup, FormControlLabel } from "@material-ui/core";
 import { createMuiTheme, ThemeProvider } from "@material-ui/core/styles";
 import { orange, blue } from "@material-ui/core/colors";
 
+
+
 const MetricSelector = ({ metrics }) => {
   const [state, setState] = React.useState({
     time: true,
@@ -11,6 +13,7 @@ const MetricSelector = ({ metrics }) => {
   });
 
   const handleChange = name => event => {
+    console.log(name);
     setState({ ...state, [name]: event.target.checked });
   };
 
@@ -25,6 +28,8 @@ const MetricSelector = ({ metrics }) => {
       primary: orange
     }
   });
+
+
 
   return (
     <FormGroup row>
