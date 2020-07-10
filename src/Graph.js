@@ -1,6 +1,6 @@
 import React from "react";
 import { Card, CardContent, Typography } from "@material-ui/core";
-import { orange, blue } from "@material-ui/core/colors";
+import { orange, blue, red } from "@material-ui/core/colors";
 import GraphTooltip from "./GraphTooltip.js";
 
 import {
@@ -11,12 +11,13 @@ import {
   CartesianGrid,
   Tooltip,
   Legend,
-  Area
+  Area,
 } from "recharts";
 
 const Graph = ({ bench }) => {
   const timeColor = [blue[500], blue[200]];
   const opsPerSecColor = [orange[500], orange[200]];
+  const mbsPerSecColor = [red[500], red[200]];
 
   return (
     <Card className="App-chart-container">
@@ -32,7 +33,7 @@ const Graph = ({ bench }) => {
             top: 5,
             right: 30,
             left: 20,
-            bottom: 5
+            bottom: 5,
           }}
         >
           <CartesianGrid strokeDasharray="3 3" />
@@ -41,6 +42,7 @@ const Graph = ({ bench }) => {
           <Legend />
           <YAxis yAxisId="time" axisLine={true} />
           <YAxis yAxisId="opsPerSec" orientation="right" axisLine={true} />
+          <YAxis yAxisId="mbsPerSec" orientation="left" axisLin={true} />
           <Area
             yAxisId="time"
             type="monotone"
@@ -57,6 +59,14 @@ const Graph = ({ bench }) => {
             fill={opsPerSecColor[1]}
             legendType="none"
           />
+          <Area
+            yAxisId="mbsPerSec"
+            type="monotone"
+            dataKey="mbsPerSecLimit"
+            stroke="none"
+            fill={mbsPerSecColor[1]}
+            legendType="none"
+          />
           <Line
             yAxisId="time"
             type="monotone"
@@ -68,6 +78,12 @@ const Graph = ({ bench }) => {
             type="monotone"
             dataKey="opsPerSec"
             stroke={opsPerSecColor[0]}
+          />
+          <Line
+            yAxisId="mbsPerSec"
+            type="monotone"
+            dataKey="mbsPerSec"
+            stroke={mbsPerSecColor[0]}
           />
         </ComposedChart>
       </CardContent>

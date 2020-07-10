@@ -1,51 +1,35 @@
 import React, { useState, useEffect } from "react";
-import { standardDeviation } from "./utils.js";
-import { generateFakeData } from "./faker.js";
-import { graphql } from "graphql";
 import Navbar from "./Navbar.js";
 import MetricSelector from "./MetricSelector.js";
 import Graph from "./Graph.js";
 import { ThemeProvider } from "@material-ui/core/styles";
 import { Box, Container, Grid, Divider } from "@material-ui/core";
-import { schema } from "./Mock.js";
 import "./App.css";
-import {
-  pipe,
-  length,
-  curry,
-  find,
-  mapAccum,
-  filter,
-  flatten,
-  equals,
-  union,
-  prop,
-  isNil,
-  keys,
-  map,
-  mean,
-  path,
-  reduce
-} from "ramda";
+import { length, mapAccum, isNil, map } from "ramda";
 
 import theme from "./theme.js";
 
-const query = /* GraphQL */ `
+import gql from "graphql-tag";
+import ApolloClient from "apollo-client";
+import { InMemoryCache } from "apollo-cache-inmemory";
+import { HttpLink } from "apollo-link-http";
+
+const client = new ApolloClient({
+  link: new HttpLink({
+    uri: "http://localhost:8080/v1/graphql",
+    headers: {},
+  }),
+  cache: new InMemoryCache(),
+});
+
+const GET_DATA = gql`
   query {
-    repositories {
+    benchmarksrun {
+      commits
       name
-      commits {
-        hash
-        benchmarkRuns {
-          data {
-            name
-            metrics {
-              time
-              ops_per_sec
-            }
-          }
-        }
-      }
+      mbs_per_sec
+      ops_per_sec
+      time
     }
   }
 `;
@@ -55,118 +39,93 @@ function benchmarkToChart(results) {
 
   const [_, result] = mapAccum(
     (index, { hash, stats }) => {
-      let shortHash = hash.substring(0, 8);
+      let time = stats["time"];
 
-      let time = find(({ name }) => equals(name, "time"), stats);
-      let opsPerSec = find(({ name }) => equals(name, "ops_per_sec"), stats);
+      let opsPerSec = stats["ops_per_sec"];
+
+      let mbsPerSec = stats["mbs_per_sec"];
 
       return [
         index + 1,
         {
-          name: shortHash,
+          name: hash,
           relCommit: index - len + 1,
-          time: time.mean,
-          timeLimit: [
-            time.mean - time.standardDeviation,
-            time.mean + time.standardDeviation
-          ],
-          opsPerSec: opsPerSec.mean,
-          opsPerSecLimit: [
-            opsPerSec.mean - opsPerSec.standardDeviation,
-            opsPerSec.mean + opsPerSec.standardDeviation
-          ]
-        }
+          time: time,
+          timeLimit: [],
+          opsPerSec: opsPerSec,
+          opsPerSecLimit: [],
+          mbsPerSec: mbsPerSec,
+          mbsPerSecLimit: [],
+        },
       ];
     },
     0,
     results
   );
 
-  console.log(result);
   return result;
 }
 
-// Take an array of metrics and aggregate them, computing mean and standard deviation
-function metricCompute(metrics) {
-  const ks = reduce(union, [], map(k => keys(k), metrics));
-
-  return map(key => {
-    const values = map(prop(key), metrics);
-
-    const valuesMean = mean(values);
-    const valuesStandardDeviation = standardDeviation(values);
-
-    return {
-      name: key,
-      mean: valuesMean,
-      standardDeviation: valuesStandardDeviation
-    };
-  }, ks);
-}
-
-const mapNil = curry((f, xs) => {
-  if (isNil(xs)) return xs;
-  return map(f, xs);
-});
-
 function App() {
-  const [data, setData] = useState({ data: { repositories: [] } });
-
-  const [searchTerm, setSearchTerm] = React.useState("");
-  const handleSearchTermChange = event => {
-    setSearchTerm(event.target.value);
-  };
+  const [data, setData] = useState({ data: { benchmarksrun: [] } });
 
   useEffect(() => {
     async function fetchData() {
-      const result = await graphql(schema, query);
-
-      setData(result.data);
+      client
+        .query({
+          query: GET_DATA,
+        })
+        .then((result) => setData(result.data));
     }
     fetchData();
   }, []);
 
-  const repo = path(["repositories", 0], data);
-  const title = path(["name"], repo);
+  const title = "mirage/index";
 
-  // Get the list of all benchmarks
+  let data_info = [];
+  if (data.hasOwnProperty("benchmarksrun")) {
+    data_info = data["benchmarksrun"];
+  } else {
+    data_info = data["data"]["benchmarksrun"];
+  }
 
-  const commits = prop("commits", repo);
-  const benchmarkNames = commits
-    ? reduce(
-        union,
-        [],
-        mapNil(
-          pipe(
-            prop("benchmarkRuns"),
-            map(prop("data")),
-            map(map(prop("name"))),
-            reduce(union, [])
-          ),
-          commits
-        )
-      )
-    : commits;
+  function getCommit(obj) {
+    return obj["commits"];
+  }
+  //Get all commits
+  const commits = Array.from(new Set(data_info.map(getCommit)));
+
+  function getName(obj) {
+    return obj["name"];
+  }
+
+  const benchmarkNames = Array.from(new Set(data_info.map(getName)));
 
   var benches = [];
 
+  function getData(name, obj) {
+    if (name === obj["name"]) {
+      return {
+        name: obj["name"],
+        hash: obj["commits"],
+        stats: {
+          time: obj["time"],
+          ops_per_sec: obj["ops_per_sec"],
+          mbs_per_sec: obj["mbs_per_sec"],
+        },
+      };
+    }
+  }
+
   if (!isNil(benchmarkNames)) {
-    benches = map(name => {
-      const results = commits.map(commit => {
-        const all = commit.benchmarkRuns.map(({ data }) => data);
-        const flattened = flatten(all);
-        const some = filter(r => equals(name, r.name), flattened);
-        const fewer = map(({ metrics }) => metrics, some);
-        const last = metricCompute(fewer);
-
-        const bar = { hash: commit.hash, stats: last };
-
-        const foo = generateFakeData(bar);
-
-        return foo;
+    benches = map((name) => {
+      const results = commits.map(() => {
+        const all = data_info.map((obj) => getData(name, obj));
+        return all;
       })[0];
 
-      const chart = benchmarkToChart(results);
+      const filtered_results = results.filter((el) => el !== undefined);
+      const chart = benchmarkToChart(filtered_results);
 
       return { name: name, chart: chart };
     }, benchmarkNames);
@@ -179,13 +138,13 @@ function App() {
         <Container maxWidth="1700px">
           <Box p={2}>
             <Container>
-              <MetricSelector metrics={["a", "b"]} />
+              <MetricSelector metrics={["a", "b", "c"]} />
             </Container>
           </Box>
           <Divider variant="middle" />
           <Box mt={2}>
             <Grid container spacing={2}>
-              {benches.map(bench => (
+              {benches.map((bench) => (
                 <Grid item xs>
                   <Graph bench={bench} />
                 </Grid>
